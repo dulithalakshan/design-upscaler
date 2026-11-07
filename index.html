@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Design File Upscaler</title>
+<meta name="description" content="Free, in-browser AI upscaler for the images inside PSD and Affinity (.af) files.">
+<style>
+:root{
+  --bg:#f6f7f9; --panel:#ffffff; --ink:#15181d; --muted:#5d6672; --line:#e2e5ea;
+  --accent:#3b5bdb; --accent-ink:#ffffff; --ok:#2b8a3e; --warn:#b35c00; --err:#c92a2a;
+  --chip:#eef1f6; --shadow:0 1px 2px rgba(0,0,0,.05),0 4px 16px rgba(0,0,0,.04);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0f1115; --panel:#171a20; --ink:#e8eaee; --muted:#9aa3ae; --line:#2a2f38;
+    --accent:#7b93ff; --accent-ink:#0f1115; --ok:#69db7c; --warn:#ffa94d; --err:#ff8787;
+    --chip:#222731; --shadow:none;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:980px;margin:0 auto;padding:28px 16px 64px}
+h1{font-size:26px;margin:0 0 4px;letter-spacing:-.01em}
+.sub{color:var(--muted);margin:0 0 22px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;box-shadow:var(--shadow);margin-bottom:16px}
+.drop{border:2px dashed var(--line);border-radius:12px;padding:34px 16px;text-align:center;cursor:pointer;transition:.15s}
+.drop:hover,.drop.over{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 6%,transparent)}
+.drop strong{display:block;font-size:17px;margin-bottom:4px}
+.drop span{color:var(--muted);font-size:13px}
+.row{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
+select,button{font:inherit}
+select{padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);min-width:150px}
+.check{display:flex;gap:8px;align-items:center;font-size:14px;color:var(--ink)}
+button{padding:9px 16px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+button:disabled{opacity:.5;cursor:not-allowed}
+.status{font-size:14px;color:var(--muted);min-height:21px}
+.bar{height:6px;background:var(--chip);border-radius:3px;overflow:hidden;margin-top:8px}
+.bar>i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
+.card{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--panel);display:flex;flex-direction:column}
+.thumb{aspect-ratio:4/3;background:repeating-conic-gradient(var(--chip) 0 25%,transparent 0 50%) 0 0/16px 16px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.thumb img,.thumb canvas{max-width:100%;max-height:100%;object-fit:contain}
+.meta{padding:8px 10px;font-size:12.5px;display:flex;flex-direction:column;gap:4px}
+.meta b{font-size:13px;font-weight:600;word-break:break-all}
+.meta .dim{color:var(--muted)}
+.meta .tag{align-self:flex-start;font-size:11px;padding:1px 7px;border-radius:99px;background:var(--chip);color:var(--muted)}
+.meta .done{color:var(--ok)} .meta .bad{color:var(--err)}
+.meta a{color:var(--accent);font-weight:600;text-decoration:none}
+.note{font-size:13.5px;color:var(--muted)}
+.note b{color:var(--ink)}
+.warn{color:var(--warn)} .err{color:var(--err)}
+details{font-size:14px}
+details summary{cursor:pointer;font-weight:600}
+ol,ul{padding-left:20px;margin:8px 0}
+.hidden{display:none!important}
+.actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+#log{font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;color:var(--muted);max-height:150px;overflow:auto;white-space:pre-wrap;margin-top:10px}
+footer{color:var(--muted);font-size:12.5px;text-align:center;margin-top:30px}
+footer a{color:inherit}
+</style>
+</head>
+<body>
+<main>
+  <h1>Design File Upscaler</h1>
+  <p class="sub">AI-enhance the low-resolution images inside <b>.psd</b> and <b>Affinity .af</b> files. Free, open-source models, running entirely in your browser — your files never leave your computer.</p>
+
+  <section class="panel">
+    <div id="drop" class="drop" tabindex="0">
+      <strong>Drop a .psd, .af, .afphoto, .afdesign or image file here</strong>
+      <span>or click to choose · PNG / JPG / WebP also accepted</span>
+    </div>
+    <input id="file" type="file" class="hidden" accept=".psd,.af,.afphoto,.afdesign,.afpub,.png,.jpg,.jpeg,.webp">
+  </section>
+
+  <section class="panel">
+    <div class="row">
+      <label class="f">Quality / model
+        <select id="model">
+          <option value="thick">Maximum (ESRGAN Thick · slowest)</option>
+          <option value="medium" selected>High (ESRGAN Medium)</option>
+          <option value="slim">Fast (ESRGAN Slim)</option>
+        </select>
+      </label>
+      <label class="f">Enlarge by
+        <select id="scale">
+          <option value="2">2× (width &amp; height)</option>
+          <option value="3">3×</option>
+          <option value="4" selected>4× (maximum detail)</option>
+        </select>
+      </label>
+      <label class="f">Image output (Affinity / images)
+        <select id="fmt">
+          <option value="png" selected>PNG (lossless)</option>
+          <option value="jpeg">JPEG 95%</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" id="smart" checked> Also enhance PSD smart-object contents</label>
+    </div>
+    <p class="note" style="margin:12px 0 0">The first run downloads the AI model (5–40&nbsp;MB, then cached). Large layers at 4× can take several minutes — keep this tab in front. A computer with a decent GPU is much faster.</p>
+  </section>
+
+  <section id="work" class="panel hidden">
+    <div class="actions" style="justify-content:space-between">
+      <div><b id="fname"></b> <span id="finfo" class="note"></span></div>
+      <div class="actions">
+        <button id="selAll" class="hidden">Select all</button>
+        <button id="go" class="primary">Enhance</button>
+      </div>
+    </div>
+    <div class="status" id="status"></div>
+    <div class="bar"><i id="bar"></i></div>
+    <div id="grid" class="grid" style="margin-top:14px"></div>
+    <div id="out" class="actions hidden" style="margin-top:16px"></div>
+    <div id="afHelp" class="note hidden" style="margin-top:14px"></div>
+    <details style="margin-top:12px"><summary class="note">Log</summary><div id="log"></div></details>
+  </section>
+
+  <section class="panel">
+    <details>
+      <summary>How it works &amp; limitations</summary>
+      <p class="note"><b>PSD:</b> every pixel layer (and, optionally, embedded smart-object images) is enhanced with an ESRGAN super-resolution model. The whole document is enlarged by the chosen factor, layer positions, masks, vector masks, text and effect sizes are scaled to match, and you download a new layered PSD. Text layers are kept as live text (Photoshop re-renders them when opened).</p>
+      <p class="note"><b>Affinity (.af / .afphoto / .afdesign):</b> Affinity's format is closed, so the page can't write a new .af file. Instead it finds the images placed inside the document (JPEG/PNG/WebP), enhances them and gives you a ZIP. In Affinity, select each image → <b>Replace Image…</b> in the context toolbar → pick the enhanced file. Size and position stay the same, but the image now has 4–16× more pixels.</p>
+      <p class="note"><b>Affinity pixel layers</b> (painted or rasterised layers, not placed images) are stored in Affinity's private tile format and can't be read here. Workaround: in Affinity use <b>File → Export → PSD</b> (keep layers), run the PSD through this page, then open the enhanced PSD in Affinity.</p>
+      <p class="note">AI upscaling adds plausible detail; it cannot recover text or fine details that were never in the image. Check results before printing.</p>
+    </details>
+  </section>
+
+  <footer>Uses <a href="https://upscalerjs.com" target="_blank" rel="noopener">UpscalerJS</a> + TensorFlow.js (MIT), <a href="https://github.com/Agamnentzar/ag-psd" target="_blank" rel="noopener">ag-psd</a> (MIT), fzstd and JSZip. No server, no sign-up, no cost.</footer>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.11.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@upscalerjs/default-model@1.0.0/dist/umd/index.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/upscaler@1.0.0/dist/browser/umd/upscaler.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ag-psd@34.1.0/dist/bundle.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/fzstd@0.1.1/umd/index.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const state = { file:null, kind:null, psd:null, items:[], results:[] };
+const MAX_SIDE = 16000;           // browser canvas safety limit
+const MODEL_V = "1.0.0";
+
+/* ---------- UI helpers ---------- */
+function log(msg){ const l=$("log"); l.textContent += msg + "\n"; l.scrollTop = l.scrollHeight; console.log(msg); }
+function status(msg, cls){ const s=$("status"); s.textContent=msg; s.className="status "+(cls||""); }
+function progress(p){ $("bar").style.width = Math.max(0,Math.min(100,p*100)).toFixed(1)+"%"; }
+const tick = () => new Promise(r => setTimeout(r, 0));
+const fmtDim = (w,h) => `${w}×${h}px`;
+function baseName(n){ return n.replace(/\.[^.]+$/,""); }
+
+/* ---------- File input ---------- */
+const drop=$("drop"), fileIn=$("file");
+drop.onclick = () => fileIn.click();
+drop.onkeydown = e => { if(e.key==="Enter"||e.key===" ") fileIn.click(); };
+drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); if(e.dataTransfer.files[0]) openFile(e.dataTransfer.files[0]); };
+fileIn.onchange = () => { if(fileIn.files[0]) openFile(fileIn.files[0]); fileIn.value=""; };
+$("go").onclick = () => run().catch(e => { status("Error: "+(e.message||e),"err"); log(e.stack||e); $("go").disabled=false; });
+$("selAll").onclick = () => document.querySelectorAll("#grid input[type=checkbox]").forEach(c=>c.checked=true);
+
+async function openFile(f){
+  state.file=f; state.items=[]; state.results=[]; state.psd=null;
+  $("work").classList.remove("hidden"); $("grid").innerHTML=""; $("out").innerHTML=""; $("out").classList.add("hidden");
+  $("afHelp").classList.add("hidden"); $("log").textContent=""; progress(0); $("go").disabled=true; $("go").textContent="Enhance";
+  $("fname").textContent=f.name; $("finfo").textContent=`· ${(f.size/1048576).toFixed(1)} MB`;
+  const ext=(f.name.split(".").pop()||"").toLowerCase();
+  const buf=await f.arrayBuffer();
+  try{
+    if(ext==="psd"||ext==="psb"){ state.kind="psd"; await loadPsd(buf); }
+    else if(["af","afphoto","afdesign","afpub"].includes(ext)){ state.kind="af"; await loadAf(buf); }
+    else { state.kind="img"; await loadImage(f); }
+    $("go").disabled = state.items.length===0;
+  }catch(e){ status("Could not read this file: "+(e.message||e),"err"); log(e.stack||e); }
+}
+
+/* ---------- Canvas helpers ---------- */
+function newCanvas(w,h){ const c=document.createElement("canvas"); c.width=Math.max(1,w); c.height=Math.max(1,h); return c; }
+function resizeSmooth(src,w,h){
+  const c=newCanvas(w,h), x=c.getContext("2d"); x.imageSmoothingEnabled=true; x.imageSmoothingQuality="high";
+  x.drawImage(src,0,0,w,h); return c;
+}
+async function bitmapToCanvas(bmp){ const c=newCanvas(bmp.width,bmp.height); c.getContext("2d").drawImage(bmp,0,0); return c; }
+function hasAlpha(c){
+  const d=c.getContext("2d").getImageData(0,0,c.width,c.height).data;
+  for(let i=3;i<d.length;i+=4) if(d[i]<255) return true; return false;
+}
+function isEmpty(c){
+  const d=c.getContext("2d").getImageData(0,0,c.width,c.height).data;
+  for(let i=3;i<d.length;i+=4) if(d[i]>0) return false; return true;
+}
+function canvasToBlob(c,type,q){ return new Promise(r=>c.toBlob(r,type,q)); }
+function thumbOf(c){ const s=Math.min(1,320/Math.max(c.width,c.height)); return resizeSmooth(c,Math.round(c.width*s),Math.round(c.height*s)); }
+
+/* ---------- AI upscaling ---------- */
+const upscalers = {};
+function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement("script"); s.src=src; s.onload=res; s.onerror=()=>rej(new Error("Failed to load "+src)); document.head.appendChild(s); }); }
+async function getUpscaler(size, scale){
+  const key=size+scale; if(upscalers[key]) return upscalers[key];
+  const glob=`ESRGAN${size[0].toUpperCase()+size.slice(1)}${scale}x`;
+  if(!window[glob]) await loadScript(`https://cdn.jsdelivr.net/npm/@upscalerjs/esrgan-${size}@${MODEL_V}/dist/umd/models/esrgan-${size}/src/x${scale}/index.min.js`);
+  if(!window[glob]) throw new Error("Model failed to load: "+glob);
+  status(`Downloading AI model (esrgan-${size} ${scale}×)…`);
+  const up=new Upscaler({ model: window[glob] });
+  await up.getModel(); upscalers[key]=up; log(`Model ready: esrgan-${size} ${scale}x · backend ${tf.getBackend()}`);
+  return up;
+}
+
+/* Fill fully transparent pixels with nearby colours so the AI doesn't create dark halos. */
+function bleedColours(src){
+  const c=newCanvas(src.width,src.height), x=c.getContext("2d");
+  for(const r of [16,8,4,2]){ x.filter=`blur(${r}px)`; x.drawImage(src,0,0); }
+  x.filter="none"; x.drawImage(src,0,0);
+  // make opaque
+  const d=x.getImageData(0,0,c.width,c.height); for(let i=3;i<d.data.length;i+=4) d.data[i]=255; x.putImageData(d,0,0);
+  return c;
+}
+
+/* Upscale a canvas by an integer factor using the AI model; alpha channel is resized separately. */
+async function aiUpscale(srcCanvas, size, scale, onProg){
+  const W=srcCanvas.width, H=srcCanvas.height, OW=W*scale, OH=H*scale;
+  if(OW>MAX_SIDE||OH>MAX_SIDE) throw new Error(`Result ${OW}×${OH} is too large for the browser (max ${MAX_SIDE}px per side). Use a smaller factor.`);
+  const alpha=hasAlpha(srcCanvas);
+  const rgbSrc= alpha ? bleedColours(srcCanvas) : srcCanvas;
+  const up=await getUpscaler(size, scale);
+  const input=tf.browser.fromPixels(rgbSrc);       // [H,W,3] int32
+  let out;
+  try{
+    out=await up.upscale(input,{ output:"tensor", patchSize:64, padding:6, progress:(p)=>onProg&&onProg(p) });
+  } finally { input.dispose(); }
+  const img=tf.tidy(()=>{ let t=out; if(t.rank===4) t=t.squeeze([0]); return t.clipByValue(0,255).round().toInt(); });
+  out.dispose();
+  const res=newCanvas(OW,OH);
+  await tf.browser.toPixels(img,res); img.dispose();
+  if(alpha){
+    // upscale alpha with high-quality interpolation and apply it
+    const a=resizeSmooth(srcCanvas,OW,OH).getContext("2d").getImageData(0,0,OW,OH).data;
+    const rx=res.getContext("2d"), id=rx.getImageData(0,0,OW,OH), d=id.data;
+    for(let i=3;i<d.length;i+=4) d[i]=a[i];
+    rx.putImageData(id,0,0);
+  }
+  return res;
+}
+
+/* Upscale by any factor (2/3/4) – run directly. */
+async function enhance(canvas, onProg){
+  const size=$("model").value, scale=+$("scale").value;
+  return aiUpscale(canvas,size,scale,onProg);
+}
+
+/* ---------- Cards ---------- */
+function addCard(item, checkable, checked){
+  const card=document.createElement("div"); card.className="card";
+  const th=document.createElement("div"); th.className="thumb"; th.appendChild(thumbOf(item.canvas));
+  const meta=document.createElement("div"); meta.className="meta";
+  meta.innerHTML=`<b></b><span class="dim">${fmtDim(item.canvas.width,item.canvas.height)}</span>`;
+  meta.querySelector("b").textContent=item.label;
+  if(item.tag){ const t=document.createElement("span"); t.className="tag"; t.textContent=item.tag; meta.appendChild(t); }
+  if(checkable){
+    const l=document.createElement("label"); l.className="check"; l.innerHTML=`<input type="checkbox"> Enhance`;
+    l.querySelector("input").checked=checked; item.check=l.querySelector("input"); meta.appendChild(l);
+  }
+  const st=document.createElement("span"); st.className="dim"; meta.appendChild(st);
+  item.statusEl=st; item.thumbEl=th;
+  card.append(th,meta); $("grid").appendChild(card);
+}
+
+/* ---------- Plain image ---------- */
+async function loadImage(f){
+  const bmp=await createImageBitmap(f); const c=await bitmapToCanvas(bmp);
+  state.items=[{label:f.name, canvas:c}]; addCard(state.items[0],false);
+  status("Ready. Press Enhance.");
+}
+
+/* ---------- PSD ---------- */
+function walkLayers(layers, fn){ for(const l of layers||[]){ fn(l); if(l.children) walkLayers(l.children,fn); } }
+async function loadPsd(buf){
+  status("Reading PSD…"); await tick();
+  const psd=agPsd.readPsd(buf,{ skipThumbnail:true });
+  state.psd=psd;
+  $("finfo").textContent+=` · ${fmtDim(psd.width,psd.height)}`;
+  let n=0;
+  walkLayers(psd.children,l=>{
+    if(!l.canvas||l.text||l.canvas.width<2||l.canvas.height<2) return;
+    if(isEmpty(l.canvas)) return;
+    const it={label:l.name||"Layer", canvas:l.canvas, layer:l, tag:l.placedLayer?"smart object":(l.hidden?"hidden":"")};
+    state.items.push(it); addCard(it,true,true); n++;
+  });
+  const linked=(psd.linkedFiles||[]).filter(f=>f.data && sniff(f.data));
+  for(const lf of linked){
+    try{
+      const bmp=await createImageBitmap(new Blob([lf.data])); const c=await bitmapToCanvas(bmp);
+      const it={label:(lf.name||"smart object")+" (contents)", canvas:c, linked:lf, tag:"smart-object source"};
+      state.items.push(it); addCard(it,true,$("smart").checked);
+    }catch(e){ log("Skip linked file "+lf.name+": "+e.message); }
+  }
+  const s=+$("scale").value;
+  if(psd.width*s>30000||psd.height*s>30000) status(`Warning: ${psd.width*s}×${psd.height*s} exceeds the PSD limit (30000px). Choose a smaller factor.`,"warn");
+  else status(`Found ${n} pixel layer(s)${linked.length?` and ${linked.length} smart-object image(s)`:""}. Untick anything you don't want AI-enhanced (it will still be resized).`);
+  if(!state.items.length) status("No pixel layers found in this PSD.","warn");
+  $("selAll").classList.remove("hidden");
+}
+
+function scaleRect(o,s){ for(const k of ["left","top","right","bottom"]) if(typeof o[k]==="number") o[k]=Math.round(o[k]*s); }
+function scaleEffects(obj,s){
+  if(!obj||typeof obj!=="object") return;
+  if(obj.units==="Pixels" && typeof obj.value==="number"){ obj.value*=s; return; }
+  for(const k in obj) scaleEffects(obj[k],s);
+}
+function scaleTextLayer(t,s){
+  if(t.transform){ t.transform=t.transform.map((v,i)=>i>=4? v*s : v); }
+  const fixStyle=st=>{ if(!st) return; for(const k of ["fontSize","leading","baselineShift","tracking"]) if(k!=="tracking"&&typeof st[k]==="number") st[k]*=s; };
+  fixStyle(t.style); (t.styleRuns||[]).forEach(r=>fixStyle(r.style));
+  if(t.boxBounds) t.boxBounds=t.boxBounds.map(v=>v*s);
+  if(t.bounds) for(const k in t.bounds) if(t.bounds[k]&&typeof t.bounds[k].value==="number") t.bounds[k].value*=s;
+  if(t.boundingBox) for(const k in t.boundingBox) if(t.boundingBox[k]&&typeof t.boundingBox[k].value==="number") t.boundingBox[k].value*=s;
+}
+function scaleVectorMask(vm,s){
+  for(const p of vm.paths||[]) for(const kn of p.knots||[]) if(kn.points) kn.points=kn.points.map(v=>v*s);
+}
+
+async function runPsd(){
+  const psd=state.psd, s=+$("scale").value;
+  if(psd.width*s>30000||psd.height*s>30000) throw new Error("Result would exceed the 30000px PSD limit — pick a smaller factor.");
+  const chosen=new Set(state.items.filter(i=>i.check&&i.check.checked));
+  const total=state.items.length; let done=0;
+
+  // 1. Smart-object source images
+  for(const it of state.items.filter(i=>i.linked)){
+    if(!chosen.has(it)){ done++; continue; }
+    it.statusEl.textContent="Enhancing…";
+    const big=await enhance(it.canvas,p=>progress((done+p)/total));
+    const type=sniff(it.linked.data)==="jpg"?"image/jpeg":"image/png";
+    it.linked.data=new Uint8Array(await (await canvasToBlob(big,type,0.95)).arrayBuffer());
+    it.linked.enhancedScale=s;
+    it.statusEl.textContent=`✓ ${fmtDim(big.width,big.height)}`; it.statusEl.className="done"; done++;
+  }
+  const linkedScaled=new Set((psd.linkedFiles||[]).filter(f=>f.enhancedScale).map(f=>f.id));
+
+  // 2. Layers
+  const layerItems=new Map(state.items.filter(i=>i.layer).map(i=>[i.layer,i]));
+  const all=[]; walkLayers(psd.children,l=>all.push(l));
+  for(const l of all){
+    const it=layerItems.get(l);
+    if(l.canvas){
+      if(it && chosen.has(it)){
+        it.statusEl.textContent="Enhancing…"; status(`Enhancing “${l.name}” (${done+1}/${total})…`);
+        l.canvas=await enhance(l.canvas,p=>progress((done+p)/total));
+        it.statusEl.textContent=`✓ ${fmtDim(l.canvas.width,l.canvas.height)}`; it.statusEl.className="done";
+      } else {
+        l.canvas=resizeSmooth(l.canvas,l.canvas.width*s,l.canvas.height*s);
+        if(it){ it.statusEl.textContent="resized (no AI)"; }
+      }
+      if(it) done++;
+    }
+    delete l.imageData;
+    // keep bounds consistent with the canvas
+    const w=l.canvas?l.canvas.width:null, h=l.canvas?l.canvas.height:null;
+    if(typeof l.left==="number"){ l.left=Math.round(l.left*s); l.top=Math.round(l.top*s); }
+    if(w!=null){ l.right=l.left+w; l.bottom=l.top+h; } else { if(typeof l.right==="number") l.right=Math.round(l.right*s); if(typeof l.bottom==="number") l.bottom=Math.round(l.bottom*s); }
+    if(l.mask){
+      if(l.mask.canvas){ l.mask.canvas=resizeSmooth(l.mask.canvas,l.mask.canvas.width*s,l.mask.canvas.height*s); delete l.mask.imageData; }
+      scaleRect(l.mask,s); if(l.mask.realUserMask) scaleRect(l.mask.realUserMask,s);
+    }
+    if(l.realMask){ if(l.realMask.canvas){ l.realMask.canvas=resizeSmooth(l.realMask.canvas,l.realMask.canvas.width*s,l.realMask.canvas.height*s); delete l.realMask.imageData; } scaleRect(l.realMask,s); }
+    if(l.vectorMask) scaleVectorMask(l.vectorMask,s);
+    if(l.effects) scaleEffects(l.effects,s);
+    if(l.text) scaleTextLayer(l.text,s);
+    if(l.placedLayer){
+      const pl=l.placedLayer;
+      if(pl.transform) pl.transform=pl.transform.map(v=>v*s);
+      if(pl.nonAffineTransform) pl.nonAffineTransform=pl.nonAffineTransform.map(v=>v*s);
+      if(linkedScaled.has(pl.id)){ if(pl.width) pl.width*=s; if(pl.height) pl.height*=s; }
+    }
+    await tick();
+  }
+
+  // 3. Composite preview + document size
+  if(psd.canvas) psd.canvas=resizeSmooth(psd.canvas,psd.width*s,psd.height*s);
+  delete psd.imageData;
+  psd.width*=s; psd.height*=s;
+  if(psd.imageResources){ delete psd.imageResources.thumbnail; delete psd.imageResources.thumbnailRaw; if(psd.imageResources.gridAndGuidesInformation&&psd.imageResources.gridAndGuidesInformation.guides) psd.imageResources.gridAndGuidesInformation.guides.forEach(g=>g.location*=s); delete psd.imageResources.slices; }
+
+  status("Writing PSD…"); await tick();
+  const out=agPsd.writePsd(psd,{ invalidateTextLayers:true, generateThumbnail:true });
+  const blob=new Blob([out],{type:"image/vnd.adobe.photoshop"});
+  addDownload(blob,`${baseName(state.file.name)}_enhanced_${s}x.psd`,"Download enhanced PSD");
+  progress(1); status(`Done — new document is ${fmtDim(psd.width,psd.height)}. Text layers will re-render when opened in Photoshop.`,"");
+}
+
+/* ---------- Affinity (.af) ---------- */
+function sniff(b){
+  if(b[0]===0xFF&&b[1]===0xD8&&b[2]===0xFF) return "jpg";
+  if(b[0]===0x89&&b[1]===0x50&&b[2]===0x4E&&b[3]===0x47) return "png";
+  if(b[0]===0x52&&b[1]===0x49&&b[2]===0x46&&b[3]===0x46&&b[8]===0x57&&b[9]===0x45&&b[10]===0x42&&b[11]===0x50) return "webp";
+  return null;
+}
+function findAll(d,sig){ const r=[]; const f=sig[0]; for(let i=d.indexOf(f);i>=0&&i<=d.length-sig.length;i=d.indexOf(f,i+1)){ let ok=true; for(let j=1;j<sig.length;j++) if(d[i+j]!==sig[j]){ok=false;break;} if(ok) r.push(i);} return r; }
+function jpegEnd(d,s){
+  let i=s+2;
+  while(i<d.length-1){
+    if(d[i]!==0xFF) return -1;
+    let m=d[i+1];
+    while(m===0xFF){ i++; m=d[i+1]; }
+    if(m===0xD9) return i+2;
+    if(m===0x01||(m>=0xD0&&m<=0xD7)){ i+=2; continue; }
+    const len=(d[i+2]<<8)|d[i+3]; if(len<2) return -1;
+    i+=2+len;
+    if(m===0xDA){ // entropy-coded data
+      while(i<d.length-1){ if(d[i]===0xFF){ const n=d[i+1]; if(n===0x00||(n>=0xD0&&n<=0xD7)||n===0xFF){ i+= n===0xFF?1:2; continue; } break; } i++; }
+    }
+  }
+  return -1;
+}
+function pngEnd(d,s){
+  let i=s+8;
+  while(i+12<=d.length){
+    const len=((d[i]<<24)>>>0)+(d[i+1]<<16)+(d[i+2]<<8)+d[i+3];
+    const type=String.fromCharCode(d[i+4],d[i+5],d[i+6],d[i+7]);
+    if(!/^[A-Za-z]{4}$/.test(type)) return -1;
+    i+=12+len; if(type==="IEND") return i;
+  }
+  return -1;
+}
+function scanImages(d, where){
+  const found=[];
+  for(const s of findAll(d,[0xFF,0xD8,0xFF])){ const e=jpegEnd(d,s); if(e>s+200) found.push({type:"jpg",start:s,end:e,where}); }
+  for(const s of findAll(d,[0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A])){ const e=pngEnd(d,s); if(e>0) found.push({type:"png",start:s,end:e,where}); }
+  for(const s of findAll(d,[0x52,0x49,0x46,0x46])){ if(d[s+8]===0x57&&d[s+9]===0x45&&d[s+10]===0x42&&d[s+11]===0x50){ const len=(d[s+4]|(d[s+5]<<8)|(d[s+6]<<16)|(d[s+7]<<24))>>>0; if(s+8+len<=d.length) found.push({type:"webp",start:s,end:s+8+len,where}); } }
+  // drop images nested inside another image (e.g. EXIF thumbnails)
+  found.sort((a,b)=>a.start-b.start);
+  return found.filter((f,i)=>!found.some((g,j)=>j!==i&&g.start<f.start&&g.end>=f.end));
+}
+function hashBytes(b){ let h=2166136261; const step=Math.max(1,Math.floor(b.length/4096)); for(let i=0;i<b.length;i+=step){ h^=b[i]; h=Math.imul(h,16777619); } return (h>>>0).toString(16)+":"+b.length; }
+
+async function loadAf(buf){
+  const d=new Uint8Array(buf);
+  status("Scanning Affinity file for embedded images…"); await tick();
+  let hits=scanImages(d,"raw").map(h=>({...h,bytes:d.subarray(h.start,h.end)}));
+  // Also look inside Affinity's zstd-compressed blocks
+  const z=findAll(d,[0x28,0xB5,0x2F,0xFD]); let zc=0;
+  for(let k=0;k<z.length;k++){
+    const end=k+1<z.length?z[k+1]:d.length, parts=[];
+    try{ const s=new fzstd.Decompress(c=>parts.push(c)); s.push(d.subarray(z[k],end),true); }catch(e){}
+    if(!parts.length) continue; zc++;
+    const len=parts.reduce((a,c)=>a+c.length,0), u=new Uint8Array(len); let o=0; for(const p of parts){u.set(p,o);o+=p.length;}
+    for(const h of scanImages(u,"compressed")) hits.push({...h,bytes:u.slice(h.start,h.end)});
+    if(k%20===0){ progress(k/z.length); await tick(); }
+  }
+  progress(0);
+  log(`Scanned ${d.length} bytes, ${zc} compressed blocks, ${hits.length} candidate images.`);
+  const seen=new Set(); let idx=0;
+  const lastPngStart=Math.max(-1,...hits.filter(h=>h.type==="png"&&h.where==="raw").map(h=>h.start));
+  for(const h of hits){
+    const key=hashBytes(h.bytes); if(seen.has(key)) continue; seen.add(key);
+    try{
+      const bmp=await createImageBitmap(new Blob([h.bytes],{type:"image/"+(h.type==="jpg"?"jpeg":h.type)}));
+      if(bmp.width<24||bmp.height<24) continue;
+      const c=await bitmapToCanvas(bmp); idx++;
+      const isPreview = h.type==="png"&&h.where==="raw"&&h.start===lastPngStart&&h.start>d.length*0.75&&Math.max(c.width,c.height)<=1024;
+      const it={label:`image-${String(idx).padStart(2,"0")}.${h.type}`, canvas:c, srcType:h.type, tag:isPreview?"document preview / thumbnail":"embedded "+h.type.toUpperCase()};
+      state.items.push(it); addCard(it,true,!isPreview);
+    }catch(e){ log("Skip candidate at "+h.start+": "+e.message); }
+  }
+  if(!state.items.length){
+    status("No embedded JPEG/PNG images found. Pixel layers in Affinity's own format can't be read — export the document as PSD from Affinity and use that instead.","warn");
+  } else status(`Found ${state.items.length} embedded image(s). Choose which to enhance, then press Enhance.`);
+  $("selAll").classList.remove("hidden");
+}
+
+async function runImages(){
+  const s=+$("scale").value, fmt=$("fmt").value, mime=fmt==="png"?"image/png":"image/jpeg";
+  const chosen=state.items.filter(i=>!i.check||i.check.checked);
+  if(!chosen.length) throw new Error("Nothing selected.");
+  state.results=[];
+  for(let k=0;k<chosen.length;k++){
+    const it=chosen[k]; it.statusEl.textContent="Enhancing…"; status(`Enhancing ${it.label} (${k+1}/${chosen.length})…`);
+    try{
+      const big=await enhance(it.canvas,p=>progress((k+p)/chosen.length));
+      const blob=await canvasToBlob(big,mime,0.95);
+      const name=`${baseName(it.label)}_${s}x.${fmt==="png"?"png":"jpg"}`;
+      state.results.push({name,blob});
+      it.statusEl.innerHTML=""; it.statusEl.className="done";
+      it.statusEl.append(`✓ ${fmtDim(big.width,big.height)} · `);
+      const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name; a.textContent="Download"; it.statusEl.append(a);
+      it.thumbEl.innerHTML=""; it.thumbEl.appendChild(thumbOf(big));
+    }catch(e){ it.statusEl.textContent="✗ "+e.message; it.statusEl.className="bad"; log(e.stack||e); }
+    await tick();
+  }
+  progress(1);
+  if(state.kind==="af" && state.results.length){
+    const zip=new JSZip(); const dir=zip.folder("enhanced");
+    for(const r of state.results) dir.file(r.name,r.blob);
+    zip.file("HOW-TO-REPLACE-IN-AFFINITY.txt",
+`Enhanced images from ${state.file.name} (${s}x, ${$("model").selectedOptions[0].text})
+
+1. Open ${state.file.name} in Affinity.
+2. In the Layers panel, select an image layer.
+3. Click "Replace Image..." in the context toolbar (or Layer > Replace Image...).
+4. Pick the matching file from the "enhanced" folder.
+   The image keeps its size and position but now has ${s*s}x more pixels.
+5. Repeat for each image, then File > Save As to keep the original safe.
+
+Tip: compare thumbnails to match files - image numbers follow the order they appear inside the file.`);
+    const zb=await zip.generateAsync({type:"blob"});
+    addDownload(zb,`${baseName(state.file.name)}_enhanced_images_${s}x.zip`,"Download all (ZIP)");
+    const h=$("afHelp"); h.classList.remove("hidden");
+    h.innerHTML=`<b>Next step in Affinity:</b> select each image → <b>Replace Image…</b> (context toolbar) → choose its enhanced file. Placement and size stay identical; the image just gets sharper. Instructions are included in the ZIP.`;
+  } else if(state.results.length===1){
+    addDownload(state.results[0].blob,state.results[0].name,"Download enhanced image");
+  }
+  status(`Done — ${state.results.length} image(s) enhanced.`);
+}
+
+function addDownload(blob,name,label){
+  const o=$("out"); o.classList.remove("hidden");
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name;
+  const b=document.createElement("button"); b.className="primary"; b.textContent=`${label} · ${(blob.size/1048576).toFixed(1)} MB`;
+  a.appendChild(b); o.appendChild(a);
+}
+
+async function run(){
+  $("go").disabled=true; $("out").innerHTML=""; progress(0);
+  if(!window.tf||!window.Upscaler) throw new Error("AI libraries failed to load — check your internet connection.");
+  await tf.ready(); log("TensorFlow backend: "+tf.getBackend());
+  const t0=performance.now();
+  if(state.kind==="psd"){ await runPsd(); }
+  else await runImages();
+  log(`Finished in ${((performance.now()-t0)/1000).toFixed(1)} s`);
+  // PSD data was modified in place; re-open the file to run again
+  if(state.kind==="psd"){ $("go").textContent="Re-open file to run again"; } else $("go").disabled=false;
+}
+</script>
+</body>
+</html>
