@@ -13,10 +13,14 @@ Free, in-browser AI upscaler for the images inside **Photoshop (.psd)** and **Af
 
 ## What it does
 
+Choose the output with **Save as**: PSD, PNG or PDF (300 dpi). Affinity `.af` files can't be written in a browser because the format is closed. Choose PSD instead: Affinity opens it directly and can save it as `.af`.
+
+With PSD input, PNG and PDF output use the AI-enhanced flattened image.
+
 | Input | Output |
 |---|---|
 | `.psd` | A new layered PSD enlarged 2–4×. Every pixel layer is AI-enhanced, and so are smart-object images if you tick that option. Positions, masks, vector masks, layer-effect sizes and text are scaled to match. Text stays editable. |
-| `.af`, `.afphoto`, `.afdesign` | A ZIP of the enhanced embedded images. In Affinity, select an image, click **Replace Image…** and pick the enhanced file. It keeps the same size and position. |
+| `.af`, `.afphoto`, `.afdesign` | The enhanced embedded images as PNG, PDF or a layered PSD. In Affinity, select an image, click **Replace Image…** and pick the enhanced file. It keeps the same size and position. |
 | `.png`, `.jpg`, `.webp` | The enhanced image. |
 
 **Affinity pixel layers.** Painted or rasterised layers are stored in Affinity's closed format and can't be read in the browser. Export the document from Affinity with **File → Export → PSD** (keep layers on), run the PSD through the page, then open the result in Affinity.
@@ -27,6 +31,7 @@ Free, in-browser AI upscaler for the images inside **Photoshop (.psd)** and **Af
 - [ag-psd](https://github.com/Agamnentzar/ag-psd) 34.1.0 to read and write PSDs
 - [fzstd](https://github.com/101arrowz/fzstd) 0.1.1 to read Affinity's compressed blocks
 - [JSZip](https://stuk.github.io/jszip/) 3.10.1 to build the ZIP download
+- [jsPDF](https://github.com/parallax/jsPDF) 4.2.1 to build the PDF
 
 ## Tips
 
