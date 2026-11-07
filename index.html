@@ -91,10 +91,12 @@ footer a{color:inherit}
           <option value="4" selected>4× (maximum detail)</option>
         </select>
       </label>
-      <label class="f">Image output (Affinity / images)
+      <label class="f">Save as
         <select id="fmt">
-          <option value="png" selected>PNG (lossless)</option>
-          <option value="jpeg">JPEG 95%</option>
+          <option value="psd">PSD (layered · opens in Photoshop &amp; Affinity)</option>
+          <option value="png" selected>PNG (lossless image)</option>
+          <option value="pdf">PDF (print-ready, 300&nbsp;dpi)</option>
+          <option value="af" disabled>Affinity .af (not possible in a browser, use PSD)</option>
         </select>
       </label>
       <label class="check"><input type="checkbox" id="smart" checked> Also enhance PSD smart-object contents</label>
@@ -122,7 +124,7 @@ footer a{color:inherit}
     <details>
       <summary>How it works &amp; limitations</summary>
       <p class="note"><b>PSD:</b> every pixel layer (and, optionally, embedded smart-object images) is enhanced with an ESRGAN super-resolution model. The whole document is enlarged by the chosen factor, layer positions, masks, vector masks, text and effect sizes are scaled to match, and you download a new layered PSD. Text layers are kept as live text (Photoshop re-renders them when opened).</p>
-      <p class="note"><b>Affinity (.af / .afphoto / .afdesign):</b> Affinity's format is closed, so the page can't write a new .af file. Instead it finds the images placed inside the document (JPEG/PNG/WebP), enhances them and gives you a ZIP. In Affinity, select each image → <b>Replace Image…</b> in the context toolbar → pick the enhanced file. Size and position stay the same, but the image now has 4–16× more pixels.</p>
+      <p class="note"><b>Affinity (.af / .afphoto / .afdesign):</b> Affinity's format is closed, so the page can't write a new .af file. Instead it finds the images placed inside the document (JPEG/PNG/WebP), enhances them and saves them as PNG, PDF or a layered PSD. In Affinity, select each image → <b>Replace Image…</b> in the context toolbar → pick the enhanced file. Size and position stay the same, but the image now has 4–16× more pixels.</p>
       <p class="note"><b>Affinity pixel layers</b> (painted or rasterised layers, not placed images) are stored in Affinity's private tile format and can't be read here. Workaround: in Affinity use <b>File → Export → PSD</b> (keep layers), run the PSD through this page, then open the enhanced PSD in Affinity.</p>
       <p class="note">AI upscaling adds plausible detail; it cannot recover text or fine details that were never in the image. Check results before printing.</p>
     </details>
@@ -161,7 +163,14 @@ drop.ondragleave = () => drop.classList.remove("over");
 drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); if(e.dataTransfer.files[0]) openFile(e.dataTransfer.files[0]); };
 fileIn.onchange = () => { if(fileIn.files[0]) openFile(fileIn.files[0]); fileIn.value=""; };
 $("go").onclick = () => run().catch(e => { status("Error: "+(e.message||e),"err"); log(e.stack||e); $("go").disabled=false; });
-$("selAll").onclick = () => document.querySelectorAll("#grid input[type=checkbox]").forEach(c=>c.checked=true);
+let fmtTouched=false;
+$("fmt").onchange = () => { fmtTouched=true; if(state.kind==="psd") status(psdHint()); };
+function psdHint(){
+  return $("fmt").value==="psd"
+    ? `Found ${state.items.length} image layer(s). Untick anything you don't want AI-enhanced (it will still be resized).`
+    : `${$("fmt").value.toUpperCase()} output: the flattened image (all visible layers) will be AI-enhanced. Layer ticks only apply to PSD output.`;
+}
+$("selAll").onclick =() => document.querySelectorAll("#grid input[type=checkbox]").forEach(c=>c.checked=true);
 
 async function openFile(f){
   state.file=f; state.items=[]; state.results=[]; state.psd=null;
@@ -169,6 +178,7 @@ async function openFile(f){
   $("afHelp").classList.add("hidden"); $("log").textContent=""; progress(0); $("go").disabled=true; $("go").textContent="Enhance";
   $("fname").textContent=f.name; $("finfo").textContent=`· ${(f.size/1048576).toFixed(1)} MB`;
   const ext=(f.name.split(".").pop()||"").toLowerCase();
+  if(!fmtTouched) $("fmt").value = (ext==="psd"||ext==="psb") ? "psd" : "png";
   const buf=await f.arrayBuffer();
   try{
     if(ext==="psd"||ext==="psb"){ state.kind="psd"; await loadPsd(buf); }
@@ -300,7 +310,7 @@ async function loadPsd(buf){
   }
   const s=+$("scale").value;
   if(psd.width*s>30000||psd.height*s>30000) status(`Warning: ${psd.width*s}×${psd.height*s} exceeds the PSD limit (30000px). Choose a smaller factor.`,"warn");
-  else status(`Found ${n} pixel layer(s)${linked.length?` and ${linked.length} smart-object image(s)`:""}. Untick anything you don't want AI-enhanced (it will still be resized).`);
+  else status(psdHint());
   if(!state.items.length) status("No pixel layers found in this PSD.","warn");
   $("selAll").classList.remove("hidden");
 }
@@ -472,48 +482,92 @@ async function loadAf(buf){
   $("selAll").classList.remove("hidden");
 }
 
+/* Enhance the selected images (Affinity / plain image input) and save in the chosen format. */
 async function runImages(){
-  const s=+$("scale").value, fmt=$("fmt").value, mime=fmt==="png"?"image/png":"image/jpeg";
   const chosen=state.items.filter(i=>!i.check||i.check.checked);
   if(!chosen.length) throw new Error("Nothing selected.");
-  state.results=[];
+  const outs=[];
   for(let k=0;k<chosen.length;k++){
     const it=chosen[k]; it.statusEl.textContent="Enhancing…"; status(`Enhancing ${it.label} (${k+1}/${chosen.length})…`);
     try{
       const big=await enhance(it.canvas,p=>progress((k+p)/chosen.length));
-      const blob=await canvasToBlob(big,mime,0.95);
-      const name=`${baseName(it.label)}_${s}x.${fmt==="png"?"png":"jpg"}`;
-      state.results.push({name,blob});
-      it.statusEl.innerHTML=""; it.statusEl.className="done";
-      it.statusEl.append(`✓ ${fmtDim(big.width,big.height)} · `);
-      const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name; a.textContent="Download"; it.statusEl.append(a);
+      outs.push({name:baseName(it.label), canvas:big, item:it});
+      it.statusEl.textContent=`✓ ${fmtDim(big.width,big.height)}`; it.statusEl.className="done";
       it.thumbEl.innerHTML=""; it.thumbEl.appendChild(thumbOf(big));
     }catch(e){ it.statusEl.textContent="✗ "+e.message; it.statusEl.className="bad"; log(e.stack||e); }
     await tick();
   }
   progress(1);
-  if(state.kind==="af" && state.results.length){
-    const zip=new JSZip(); const dir=zip.folder("enhanced");
-    for(const r of state.results) dir.file(r.name,r.blob);
-    zip.file("HOW-TO-REPLACE-IN-AFFINITY.txt",
-`Enhanced images from ${state.file.name} (${s}x, ${$("model").selectedOptions[0].text})
+  if(!outs.length) throw new Error("No image could be enhanced.");
+  await saveOutputs(outs);
+  status(`Done: ${outs.length} image(s) enhanced and saved as ${$("fmt").value.toUpperCase()}.`);
+}
+
+/* PSD input → PNG/PDF: AI-enhance the flattened image. */
+function flattenPsd(psd){
+  if(psd.canvas && !isEmpty(psd.canvas)) return psd.canvas;
+  const c=newCanvas(psd.width,psd.height), x=c.getContext("2d");
+  const draw=(layers,op)=>{ for(const l of layers||[]){ if(l.hidden) continue; const o=op*(l.opacity==null?1:l.opacity);
+    if(l.children) draw(l.children,o); else if(l.canvas){ x.globalAlpha=o; x.drawImage(l.canvas,l.left||0,l.top||0); } } };
+  draw(psd.children,1); x.globalAlpha=1; return c;
+}
+async function runPsdFlat(){
+  status("Enhancing the flattened image…");
+  const big=await enhance(flattenPsd(state.psd),p=>progress(p));
+  await saveOutputs([{name:baseName(state.file.name), canvas:big}]);
+  progress(1); status(`Done: ${fmtDim(big.width,big.height)} saved as ${$("fmt").value.toUpperCase()}.`);
+}
+
+/* Write enhanced canvases as PNG (ZIP if several), one multi-page PDF, or one layered PSD. */
+async function saveOutputs(outs){
+  const s=+$("scale").value, fmt=$("fmt").value, base=baseName(state.file.name);
+  const multi=outs.length>1, help=$("afHelp");
+  if(fmt==="png"){
+    const files=[];
+    for(const o of outs){
+      const blob=await canvasToBlob(o.canvas,"image/png"); const name=`${o.name}_${s}x.png`; files.push({name,blob});
+      if(o.item){ const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name; a.textContent="Download"; o.item.statusEl.append(" · ",a); }
+    }
+    if(multi){
+      const zip=new JSZip(); const dir=zip.folder("enhanced"); files.forEach(f=>dir.file(f.name,f.blob));
+      if(state.kind==="af") zip.file("HOW-TO-REPLACE-IN-AFFINITY.txt",
+`Enhanced images from ${state.file.name} (${s}x)
 
 1. Open ${state.file.name} in Affinity.
-2. In the Layers panel, select an image layer.
-3. Click "Replace Image..." in the context toolbar (or Layer > Replace Image...).
+2. Select an image layer in the Layers panel.
+3. Click "Replace Image..." in the context toolbar.
 4. Pick the matching file from the "enhanced" folder.
-   The image keeps its size and position but now has ${s*s}x more pixels.
-5. Repeat for each image, then File > Save As to keep the original safe.
-
-Tip: compare thumbnails to match files - image numbers follow the order they appear inside the file.`);
-    const zb=await zip.generateAsync({type:"blob"});
-    addDownload(zb,`${baseName(state.file.name)}_enhanced_images_${s}x.zip`,"Download all (ZIP)");
-    const h=$("afHelp"); h.classList.remove("hidden");
-    h.innerHTML=`<b>Next step in Affinity:</b> select each image → <b>Replace Image…</b> (context toolbar) → choose its enhanced file. Placement and size stay identical; the image just gets sharper. Instructions are included in the ZIP.`;
-  } else if(state.results.length===1){
-    addDownload(state.results[0].blob,state.results[0].name,"Download enhanced image");
+   It keeps its size and position but has ${s*s}x more pixels.
+5. Repeat for each image, then File > Save As.`);
+      addDownload(await zip.generateAsync({type:"blob"}),`${base}_enhanced_${s}x.zip`,"Download PNGs (ZIP)");
+    } else addDownload(files[0].blob,`${base}_enhanced_${s}x.png`,"Download PNG");
+    if(state.kind==="af"){ help.classList.remove("hidden"); help.innerHTML=`<b>Next step in Affinity:</b> select each image → <b>Replace Image…</b> → choose its enhanced PNG. Size and position stay the same; the image just gets sharper.`; }
   }
-  status(`Done — ${state.results.length} image(s) enhanced.`);
+  else if(fmt==="pdf"){
+    status("Building PDF…"); await tick();
+    if(!window.jspdf) await loadScript("https://cdn.jsdelivr.net/npm/jspdf@4.2.1/dist/jspdf.umd.min.js");
+    const DPI=300, pt=v=>v*72/DPI;
+    let doc=null;
+    for(const o of outs){
+      const w=pt(o.canvas.width), h=pt(o.canvas.height), orient=w>h?"l":"p";
+      if(!doc) doc=new jspdf.jsPDF({unit:"pt",format:[w,h],orientation:orient,compress:true});
+      else doc.addPage([w,h],orient);
+      doc.addImage(o.canvas,"PNG",0,0,w,h,undefined,"FAST");
+      await tick();
+    }
+    addDownload(doc.output("blob"),`${base}_enhanced_${s}x.pdf`,"Download PDF");
+    if(state.kind==="af"){ help.classList.remove("hidden"); help.innerHTML=`Each enhanced image is one PDF page at ${DPI}&nbsp;dpi. In Affinity you can <b>File → Place…</b> a page, or use PNG/PSD for easier editing.`; }
+  }
+  else if(fmt==="psd"){
+    status("Writing PSD…"); await tick();
+    const W=Math.max(...outs.map(o=>o.canvas.width)), H=Math.max(...outs.map(o=>o.canvas.height));
+    const children=outs.map((o,i)=>({name:o.name, canvas:o.canvas, left:0, top:0, hidden: i>0}));
+    const comp=newCanvas(W,H); comp.getContext("2d").drawImage(outs[0].canvas,0,0);
+    const data=agPsd.writePsd({width:W,height:H,canvas:comp,children},{generateThumbnail:true});
+    addDownload(new Blob([data],{type:"image/vnd.adobe.photoshop"}),`${base}_enhanced_${s}x.psd`,"Download PSD");
+    if(state.kind==="af"){ help.classList.remove("hidden"); help.innerHTML=`Each enhanced image is a layer${multi?" (only the first is visible)":""}. Open the PSD in Affinity, or copy a layer into your document and use <b>Replace Image…</b> for an exact swap. Then <b>File → Save As</b> to get an .af file.`; }
+  }
+  else throw new Error("Affinity .af files can't be created in a browser. Choose PSD instead; Affinity opens it directly and saves it as .af.");
 }
 
 function addDownload(blob,name,label){
@@ -528,11 +582,13 @@ async function run(){
   if(!window.tf||!window.Upscaler) throw new Error("AI libraries failed to load — check your internet connection.");
   await tf.ready(); log("TensorFlow backend: "+tf.getBackend());
   const t0=performance.now();
-  if(state.kind==="psd"){ await runPsd(); }
+  const layered = state.kind==="psd" && $("fmt").value==="psd";
+  if(layered) await runPsd();
+  else if(state.kind==="psd") await runPsdFlat();
   else await runImages();
   log(`Finished in ${((performance.now()-t0)/1000).toFixed(1)} s`);
-  // PSD data was modified in place; re-open the file to run again
-  if(state.kind==="psd"){ $("go").textContent="Re-open file to run again"; } else $("go").disabled=false;
+  // Layered PSD output modifies the document in place; re-open the file to run again
+  if(layered){ $("go").textContent="Re-open file to run again"; } else $("go").disabled=false;
 }
 </script>
 </body>
